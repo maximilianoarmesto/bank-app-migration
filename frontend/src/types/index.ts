@@ -40,3 +40,15 @@ export interface RegisterData {
   first_name: string;
   last_name: string;
 }
+
+/**
+ * Wire / serialized representation of a payment transaction.
+ * Amounts and balances are strings to preserve decimal precision,
+ * matching the backend Numeric/Decimal field convention.
+ */
+export interface PaymentTransaction {
+  accountNumber: string;
+  sortCode: string;
+  amount: string;
+  accountBalance: string;
+}
