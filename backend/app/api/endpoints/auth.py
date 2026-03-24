@@ -4,12 +4,14 @@ Authentication endpoints.
 Routes
 ------
 POST /api/auth/token    — Exchange username + password for an access + refresh token pair.
-POST /api/auth/refresh  — Exchange a valid refresh token for a new access token.
+POST /api/auth/refresh  — Exchange a valid refresh token for a new token pair.
 POST /api/auth/logout   — Invalidate the current access token (server-side blacklist).
 GET  /api/auth/me       — Return the currently authenticated user's profile.
 
-All authentication failures are recorded in the audit log so that security
-teams can review brute-force attempts and anomalous access patterns.
+All authentication events (success and failure) are recorded in the audit log
+so that security teams can review brute-force attempts and anomalous patterns.
+Where a database session is available, the record is persisted to the
+``audit_logs`` table.
 """
 
 from __future__ import annotations
@@ -102,7 +104,9 @@ async def login(
             client_ip=ip,
             user_agent=ua,
             detail="Invalid username or password",
+            db=db,
         )
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -118,7 +122,9 @@ async def login(
             client_ip=ip,
             user_agent=ua,
             detail="Disabled account attempted login",
+            db=db,
         )
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Inactive user account",
@@ -137,7 +143,9 @@ async def login(
         action="POST /api/auth/token",
         client_ip=ip,
         user_agent=ua,
+        db=db,
     )
+    db.commit()
 
     return Token(
         access_token=access_token,
@@ -178,7 +186,9 @@ async def refresh_token(
             client_ip=ip,
             user_agent=ua,
             detail="Revoked refresh token reuse attempt",
+            db=db,
         )
+        db.commit()
         raise credentials_exception
 
     payload = verify_refresh_token(body.refresh_token)
@@ -189,7 +199,9 @@ async def refresh_token(
             client_ip=ip,
             user_agent=ua,
             detail="Refresh token verification failed",
+            db=db,
         )
+        db.commit()
         raise credentials_exception
 
     username: str | None = payload.get("sub")
@@ -200,7 +212,9 @@ async def refresh_token(
             client_ip=ip,
             user_agent=ua,
             detail="Refresh token missing 'sub' claim",
+            db=db,
         )
+        db.commit()
         raise credentials_exception
 
     user = db.query(User).filter(User.username == username).first()
@@ -212,7 +226,9 @@ async def refresh_token(
             client_ip=ip,
             user_agent=ua,
             detail="User not found or inactive during token refresh",
+            db=db,
         )
+        db.commit()
         raise credentials_exception
 
     # Revoke the consumed refresh token (rotation).
@@ -231,7 +247,9 @@ async def refresh_token(
         action="POST /api/auth/refresh",
         client_ip=ip,
         user_agent=ua,
+        db=db,
     )
+    db.commit()
 
     return Token(
         access_token=new_access_token,
@@ -248,6 +266,7 @@ async def refresh_token(
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
     request: Request,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> None:
     """
@@ -267,7 +286,9 @@ async def logout(
         action="POST /api/auth/logout",
         client_ip=_client_ip(request),
         user_agent=_user_agent(request),
+        db=db,
     )
+    db.commit()
 
 
 # ---------------------------------------------------------------------------

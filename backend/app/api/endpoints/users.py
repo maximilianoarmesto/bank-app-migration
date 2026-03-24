@@ -9,6 +9,10 @@ Access-control policy
 - **Read / Update a user**: the user themselves OR an admin.
   - Attempts by other users are rejected with HTTP 403 and written to
     the audit log.
+
+All mutating operations pass the active database session to ``log_event`` so
+that the audit record is persisted to the ``audit_logs`` table within the
+same transaction as the business operation.
 """
 
 from __future__ import annotations
@@ -80,7 +84,9 @@ def create_user(
         client_ip=_client_ip(request),
         user_agent=_user_agent(request),
         detail=f"New user registered: '{db_user.username}'",
+        db=db,
     )
+    db.commit()
 
     return db_user
 
@@ -177,6 +183,8 @@ def update_user(
         client_ip=_client_ip(request),
         user_agent=_user_agent(request),
         detail=f"Updated fields: {list(update_data.keys())}",
+        db=db,
     )
+    db.commit()
 
     return db_user

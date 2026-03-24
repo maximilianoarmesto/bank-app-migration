@@ -21,6 +21,11 @@ require_account_owner_or_admin(account_id)
 require_self_or_admin(user_id)
     Builds a dependency that checks the authenticated user is accessing
     their own profile, or falls back to admin bypass.
+
+Database session
+----------------
+All guards that log audit events accept an optional ``db`` keyword-argument
+so that the audit record is persisted within the same request transaction.
 """
 
 from __future__ import annotations
@@ -94,7 +99,9 @@ async def get_current_user(
             client_ip=_client_ip(request),
             user_agent=_user_agent(request),
             detail="Token verification failed",
+            db=db,
         )
+        db.commit()
         raise credentials_exception
 
     username: str | None = payload.get("sub")
@@ -105,7 +112,9 @@ async def get_current_user(
             client_ip=_client_ip(request),
             user_agent=_user_agent(request),
             detail="Token missing 'sub' claim",
+            db=db,
         )
+        db.commit()
         raise credentials_exception
 
     user = db.query(User).filter(User.username == username).first()
@@ -117,7 +126,9 @@ async def get_current_user(
             client_ip=_client_ip(request),
             user_agent=_user_agent(request),
             detail=f"No user found for username '{username}'",
+            db=db,
         )
+        db.commit()
         raise credentials_exception
 
     return user
@@ -130,6 +141,7 @@ async def get_current_user(
 
 async def get_current_active_user(
     request: Request,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> User:
     """
@@ -147,7 +159,9 @@ async def get_current_active_user(
             client_ip=_client_ip(request),
             user_agent=_user_agent(request),
             detail="Deactivated account attempted access",
+            db=db,
         )
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Inactive user account",
@@ -162,6 +176,7 @@ async def get_current_active_user(
 
 async def require_admin(
     request: Request,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> User:
     """
@@ -180,7 +195,9 @@ async def require_admin(
             client_ip=_client_ip(request),
             user_agent=_user_agent(request),
             detail="Non-admin user attempted admin-only operation",
+            db=db,
         )
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions — administrator role required",
@@ -244,7 +261,9 @@ def require_account_owner_or_admin(account_id_param: str = "account_id") -> Call
                     f"User '{current_user.username}' attempted to access "
                     f"bank account {account_id} owned by user {account.owner_id}"
                 ),
+                db=db,
             )
+            db.commit()
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not enough permissions — you do not own this account",
@@ -272,6 +291,7 @@ def require_self_or_admin(user_id_param: str = "user_id") -> Callable:
 
     async def _guard(
         request: Request,
+        db: Session = Depends(get_db),
         current_user: User = Depends(get_current_active_user),
     ) -> User:
         raw_id = request.path_params.get(user_id_param)
@@ -297,7 +317,9 @@ def require_self_or_admin(user_id_param: str = "user_id") -> Callable:
                     f"User '{current_user.username}' (id={current_user.id}) attempted to access "
                     f"profile of user {target_user_id}"
                 ),
+                db=db,
             )
+            db.commit()
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not enough permissions — you can only access your own profile",

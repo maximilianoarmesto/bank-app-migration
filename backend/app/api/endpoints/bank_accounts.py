@@ -11,6 +11,10 @@ Access-control policy
 - **Read / Update / Delete**: owner OR admin only.
   - Non-owner, non-admin access attempts are rejected with HTTP 403 and
     written to the audit log.
+
+All mutating operations pass the active database session to ``log_event`` so
+that the audit record is persisted to the ``audit_logs`` table within the
+same transaction as the business operation.
 """
 
 from __future__ import annotations
@@ -69,6 +73,7 @@ def create_bank_account(
                 f"User '{current_user.username}' attempted to create an account "
                 f"on behalf of user {account.owner_id}"
             ),
+            db=db,
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -100,7 +105,9 @@ def create_bank_account(
         action="POST /api/bank-accounts/",
         client_ip=_client_ip(request),
         user_agent=_user_agent(request),
+        db=db,
     )
+    db.commit()
 
     return db_account
 
@@ -204,7 +211,9 @@ def update_bank_account(
         client_ip=_client_ip(request),
         user_agent=_user_agent(request),
         detail=f"Updated fields: {list(update_data.keys())}",
+        db=db,
     )
+    db.commit()
 
     return db_account
 
@@ -246,4 +255,6 @@ def delete_bank_account(
         action=f"DELETE /api/bank-accounts/{account_id}",
         client_ip=_client_ip(request),
         user_agent=_user_agent(request),
+        db=db,
     )
+    db.commit()
